@@ -3,12 +3,13 @@ import Web3 from "web3";
 import { MerkleTree } from "merkletreejs";
 import keccak256 from "keccak256";
 
-const contractAddress = "0xC85Ada7E69174E9474e154A3fB684e41A22c9749";
+const contractAddress = "0x485708c5940df07f930Bd020C8B868D9402f2c67";
 const contractAbi = contract.abi;
 
-const web3 = new Web3(
-  "https://eth-rinkeby.alchemyapi.io/v2/ZuK1mopfg3s8tiGABxh5Xvr-qh4Dqxaq"
-);
+// const web3 = new Web3(
+//   "https://eth-rinkeby.alchemyapi.io/v2/ZuK1mopfg3s8tiGABxh5Xvr-qh4Dqxaq"
+// );
+const web3 = new Web3(Web3.givenProvider);
 const contractOject = new web3.eth.Contract(contractAbi, contractAddress);
 
 // calculate merkle root from whitelist array
@@ -40,4 +41,98 @@ export const isPreSaleState = async () => {
 export const isPausedState = async () => {
   let pause = await contractOject.methods._paused().call();
   return pause;
+};
+
+export const preSaleMintFunc = async (addrs, mintAmount) => {
+  if (!window.ethereum.isConnected()) {
+    return {
+      success: false,
+      status: "Please Connect your wallet",
+    };
+  }
+  // console.log(addrs);
+  let leaf = keccak256(addrs);
+  let proof = tree.getHexProof(leaf);
+  let isValid = tree.verify(proof, leaf, root);
+  if (!isValid) {
+    return {
+      success: false,
+      status: "Invalid : You are not in whitelist!",
+    };
+  }
+  const nounce = await web3.eth.getTransactionCount(addrs, "latest");
+  const tx = {
+    from: addrs,
+    to: contractAddress,
+    nounce: nounce.toString(16),
+    gas: String(300000 * mintAmount),
+    value: web3.utils.toWei(String(0.01 * mintAmount), "ether"),
+    data: contractOject.methods.mint(addrs, mintAmount, proof).encodeABI(),
+  };
+  // console.log(tx);
+
+  // contractOject.methods
+  //   .mint(addrs, mintAmount, proof)
+  //   .send(tx)
+  //   .then((res) => {
+  //     // console.log(res);
+  //     return {
+  //       success: true,
+  //       status: (
+  //         <a
+  //           href={`https://rinkeby.etherscan.io/tx/${res.transactionHash}`}
+  //           target="_blank"
+  //           rel="noopener noreferrer"
+  //         >
+  //           <p>Check your Transaction on Etherscan : </p>
+  //           <p>{`https://rinkeby.etherscan.io/tx/${res.transactionHash}`}</p>
+  //         </a>
+  //       ),
+  //     };
+  //   })
+  //   .catch((err) => {
+  //     console.log(err.message)
+  //     return {
+  //       success: false,
+  //       status: err.message,
+  //     };
+  //   });
+  let ttransactionHash;
+
+  try {
+    const txHash = await contractOject.methods
+      .mint(addrs, mintAmount, proof)
+      .send(tx);
+    console.log(txHash);
+    ttransactionHash = await txHash;
+    return {
+      success: true,
+      status: (
+        <a
+          href={`https://rinkeby.etherscan.io/tx/${txHash.transactionHash}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Check your Transaction on Etherscan : 
+          {` https://rinkeby.etherscan.io/tx/${txHash.transactionHash}`}
+        </a>
+      ),
+    };
+    // console.log(txHash)
+  } catch (err) {
+    console.log(err);
+    return {
+      success: false,
+      status: (
+        <a
+          href={`https://rinkeby.etherscan.io/address/0x485708c5940df07f930Bd020C8B868D9402f2c67`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Transaction is failed chech it on Etherscan :
+          {` https://rinkeby.etherscan.io/address/0x485708c5940df07f930Bd020C8B868D9402f2c67`}
+        </a>
+      ),
+    };
+  }
 };

@@ -10,10 +10,12 @@ import {
   isPausedState,
   isPreSaleState,
   isPublicSaleState,
+  preSaleMintFunc,
 } from '../utils/interact'
-// import Web3 from 'web3'
+import Web3 from 'web3'
 
 // console.log(wallets)
+let web3 = new Web3(Web3.givenProvider)
 
 const MintPage = () => {
   const [walletAddress, setWalletAddress] = useState(null)
@@ -23,26 +25,74 @@ const MintPage = () => {
   const [isPaused, setPaused] = useState()
   const [isPreSale, setPreSale] = useState(false)
   const [isPublic, setPublic] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState(null)
+  const [switchStatus, setSwitch] = useState(false)
 
   useEffect(() => {
     const init = async () => {
-      setPreSale(await isPreSaleState())
-      setPaused(await isPausedState())
-      setPublic(await isPublicSaleState())
+      const chain = await web3.eth.getChainId()
+      if (chain === 4) {
+        setPreSale(await isPreSaleState())
+        setPaused(await isPausedState())
+        setPublic(await isPublicSaleState())
+      } else {
+        setSwitch(true)
+      }
     }
     init()
   }, [])
 
   const connectWalletHandler = async () => {
-    const wallets = await onboard.connectWallet()
-    if (wallets[0]) {
-      setWalletAddress(wallets[0].accounts[0].address)
-      let { totalSupply, maxSupply } = await getBlockchainData()
-      setCountMinted(totalSupply)
-      setSupply(maxSupply)
-      console.log(totalSupply)
+    const chain = await web3.eth.getChainId()
+    if (chain === 4) {
+      setSwitch(false)
+      const wallets = await onboard.connectWallet()
+      if (wallets[0]) {
+        setWalletAddress(wallets[0].accounts[0].address)
+        let { totalSupply, maxSupply } = await getBlockchainData()
+        setCountMinted(totalSupply)
+        setSupply(maxSupply)
+        console.log(totalSupply)
+      }
+    } else {
+      setSwitch(true)
     }
     // console.log(wallets[0])
+  }
+
+  const switchHandler = async (network) => {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x4' }],
+      })
+      // location.reload()
+      setSwitch(false)
+    } catch (switchError) {
+      // This error code indicates that the chain has not been added to MetaMask.
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: network.chainId,
+                rpcUrls: network.rpcUrls,
+                chainName: network.chainName,
+                nativeCurrency: network.nativeCurrency,
+                blockExplorerUrls: network.blockExplorerUrls,
+              },
+            ],
+          })
+          // setChainIdMsg(null)
+        } catch (addError) {
+          alert('Error occurred')
+        }
+      } else {
+        throw switchError
+      }
+    }
   }
 
   const handleAdd = () => {
@@ -54,6 +104,28 @@ const MintPage = () => {
   const handleMinus = () => {
     if (mintAmount > 1) {
       setMintAmount(--mintAmount)
+    }
+  }
+
+  const MintingHandler = async () => {
+    const chain = await web3.eth.getChainId()
+    if (chain === 4) {
+      setSwitch(false)
+      if (!isPaused) {
+        setLoading(true)
+        let { status, success } = await preSaleMintFunc(
+          walletAddress,
+          mintAmount,
+        )
+        setStatus({ success, status })
+        setLoading(false)
+        let { totalSupply } = await getBlockchainData()
+        setCountMinted(totalSupply)
+      } else {
+        alert('Minting Paused')
+      }
+    } else {
+      setSwitch(true)
     }
   }
 
@@ -73,14 +145,27 @@ const MintPage = () => {
           />
         </div>
         <div className="mintCard  flex flex-col items-center justify-center mx-auto w-90">
+          {switchStatus ? (
+            <div className="switchContent">
+              <p className="text-brand-white">
+                Please Switch your network to Rinkeby Testnet
+              </p>
+              <button
+                onClick={switchHandler}
+                className="font-coiny mt-5 mb-5 uppercase w-full p-2 bg-brand-pink rounded-lg bg-gradient-to-br from-brand-purple to-brand-pink shadow-lg text-2xl text-brand-white hover:shadow-pink-400/50"
+              >
+                Switch
+              </button>
+            </div>
+          ) : null}
           <h2 className="font-coiny font-bold uppercase text-brand-purple text-3xl">
-            {isPaused ? 'Paused' : isPreSale ? 'Pre - Sale' : 'Public Sale'}
+            {isPaused ? 'Paused' : isPreSale ? 'Pre - Sale' : 'Public'}
           </h2>
           <p className="space-x-4 mt-5 text-brand-white text-sm p-2 shadow-sm shadow-brand-pink rounded-lg">
             {walletAddress !== null ? walletAddress : ''}
           </p>
-          <div className="flex items-center justify-between mt-8">
-            <div className="relative ">
+          <div className="flex items-center flex-wrap justify-center mt-3">
+            <div className="relative  mt-5">
               <div className="countBox font-coiny">
                 <span className="text-brand-purple ">{countMinted}</span> |{' '}
                 {supply}
@@ -90,7 +175,7 @@ const MintPage = () => {
                 src="https://img-s1.onedio.com/id-624ead38e37476c216b2ac6b/rev-0/w-620/f-jpg/s-ff1cf6479409c5b23a919be96e6ec3ce731faa7c.jpg"
               />
             </div>
-            <div className="flex flex-col items-center w-80 counterDIv">
+            <div className="flex flex-col items-center w-80 m-5 counterDIv">
               <div className="flex items-center w-full justify-between">
                 <button
                   className="bg-[#f0e9e9] p-2 font-bold rounded-lg outline-none"
@@ -122,10 +207,11 @@ const MintPage = () => {
               </div>
               {walletAddress ? (
                 <button
+                  disabled={loading}
                   className="font-coiny mt-10 uppercase w-full p-4 bg-brand-pink rounded-lg bg-gradient-to-br from-brand-purple to-brand-pink shadow-lg text-2xl text-brand-white hover:shadow-pink-400/50  hover:animate-pulse"
-                  onClick={connectWalletHandler}
+                  onClick={MintingHandler}
                 >
-                  Mint
+                  {loading ? 'Loading...' : 'Mint'}
                 </button>
               ) : (
                 <button
@@ -138,11 +224,17 @@ const MintPage = () => {
             </div>
           </div>
           {/* status  */}
-          <div className="rounded-lg text-start h-full border border-brand-pink w-full p-4 mt-4">
-            <p className="flex flex-col space-y-2 text-brand-white text-sm break-words">
-              Something went wrong
-            </p>
-          </div>
+          {status ? (
+            <div
+              className={`rounded-lg text-start h-full border ${
+                status.success ? 'border-brand-green' : 'border-brand-pink'
+              } w-full p-4 mt-4`}
+            >
+              <p className="flex flex-col space-y-2 text-brand-white text-sm break-words">
+                {status.status}
+              </p>
+            </div>
+          ) : null}
           {/* contract  */}
           <div className="flex flex-col items-center mt-6 ">
             <h1 className="font-coiny text-3xl font-bold text-brand-pink">
